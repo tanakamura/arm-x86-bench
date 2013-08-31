@@ -182,7 +182,7 @@ rm_op(struct prog_arg *pa, struct thread_data *ta)
 
     time_end();
 
-    int inst_total = n * niter * (double)(32 + 3);
+    double inst_total = n * niter * (double)(32 + 3);
 
     printf("IPC=%f %lld\n", (double)inst_total/(double)(te-tb), te-tb);
 }

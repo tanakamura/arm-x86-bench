@@ -68,6 +68,16 @@ dump_1mem(struct prog_arg *a, double time_delta, long long cycle_delta)
 }
 
 static void
+dump_f32op1(struct prog_arg *a, double time_delta, long long cycle_delta)
+{
+    double num_op = (a->block_size/4) * (double)a->nloop * (double)a->nthread;
+
+    num_op /= (time_delta*1000*1000);
+
+    printf("%f [Mops/sec]\n", num_op);
+}
+
+static void
 memcpy_test(struct prog_arg *pa, struct thread_data *ta)
 {
     int n = pa->nloop;
@@ -96,6 +106,158 @@ memset_test(struct prog_arg *pa, struct thread_data *ta)
     }
 }
 
+static void
+mem_reorder(struct prog_arg *pa, struct thread_data *ta)
+{
+    int n = pa->nloop;
+    int i;
+    long long tb;
+    long long te;
+    long long t1, t2;
+    long long niter = 512;
+    volatile unsigned int *ptr0 = (unsigned int*)pa->mem1;
+    unsigned int *ptr1 = (unsigned int*)pa->mem1;
+
+    asm volatile ("":"+r"(ptr0),"+r"(ptr1));
+
+    ptr1 ++;
+
+    time_init();
+
+    tb = get_cycle();
+
+    int sum0 = 0;
+    for (i=0; i<n; i++) {
+        long long bi = 0;
+        int j;
+
+        for (j=0; j<niter; j+=4) {
+            ptr1[(j*4+0)*2] = 0;
+            ptr0[(j*4+0)*2];
+            ptr1[(j*4+1)*2] = 0;
+            ptr0[(j*4+1)*2];
+            ptr1[(j*4+2)*2] = 0;
+            ptr0[(j*4+2)*2];
+            ptr1[(j*4+3)*2] = 0;
+            ptr0[(j*4+3)*2];
+        }
+    }
+    te = get_cycle();
+
+    t1 = te-tb;
+
+
+    tb = get_cycle();
+
+    for (i=0; i<n; i++) {
+        long long bi = 0;
+        int j;
+
+        for (j=0; j<niter; j+=4) {
+            ptr1[(j*4+0)*2] = 0;
+            ptr1[(j*4+1)*2] = 0;
+            ptr1[(j*4+2)*2] = 0;
+            ptr1[(j*4+3)*2] = 0;
+
+            ptr0[(j*4+0)*2];
+            ptr0[(j*4+1)*2];
+            ptr0[(j*4+2)*2];
+            ptr0[(j*4+3)*2];
+        }
+    }
+    te = get_cycle();
+
+    t2 = te-tb;
+
+
+    time_end();
+
+    double inst_total = n * niter * 2.0;
+
+    printf("IPC=%f/%f sum=%d\n",
+           (double)inst_total/(double)(t1),
+           (double)inst_total/(double)(t2),
+           sum0);
+}
+
+static void
+vecadd_test(struct prog_arg *p,
+            struct thread_data *a)
+{
+    int bs = p->block_size_op;
+    int nelem = bs/4, li, ei;
+    int nloop = p->nloop;
+
+
+    for (li=0; li<nloop; li++) {
+        int* src0 = (int*)(p->mem1 + (a->tid * p->block_size));
+        int* src1 = (int*)(p->mem3 + (a->tid * p->block_size));
+        int* dst0 = (int*)(p->mem2 + (a->tid * p->block_size));
+
+        for (ei=0; ei<nelem; ei++) {
+            *(dst0++) = *(src0++) + *(src1++);
+        }
+
+        asm volatile ("":::"memory");
+    }
+}
+
+static __attribute__((noinline)) void
+recfunc0(int i)
+{
+    asm volatile ("":::"memory");
+}
+#ifdef __arm__
+#define JMPRET asm volatile ("b 1f\n\tnop\n\t1:\n\tnop":::"memory", "r4", "r5"); 
+#else
+#define JMPRET asm volatile ("jmp 1f\n\tnop\n\t1:":::"memory"); 
+#endif
+
+#define GENR(n,n2)                              \
+    static __attribute__((noinline)) void       \
+    recfunc##n(int i)                           \
+    {                                           \
+        if (i) {                                \
+            recfunc##n2(!i);                    \
+        } else {                                \
+            recfunc##n(!i);                     \
+        }                                       \
+        JMPRET;                                 \
+    }
+
+
+GENR(1,0)  GENR(2,1)  GENR(3,2)  GENR(4,3)  GENR(5,4)  GENR(6,5)  GENR(7,6)  GENR(8,7)  GENR(9,8)  GENR(10,9)  GENR(11,10)  GENR(12,11)  GENR(13,12)  GENR(14,13)  GENR(15,14)  GENR(16,15)  GENR(17,16)  GENR(18,17)  GENR(19,18)  GENR(20,19)  GENR(21,20)  GENR(22,21)  GENR(23,22)  GENR(24,23)  GENR(25,24)  GENR(26,25)  GENR(27,26)  GENR(28,27)  GENR(29,28)  GENR(30,29)  GENR(31,30)  GENR(32,31)  GENR(33,32)  GENR(34,33)  GENR(35,34)  GENR(36,35)  GENR(37,36)  GENR(38,37)  GENR(39,38)  GENR(40,39)  GENR(41,40)  GENR(42,41)  GENR(43,42)  GENR(44,43)  GENR(45,44)  GENR(46,45)  GENR(47,46)  GENR(48,47)  GENR(49,48)  GENR(50,49)  GENR(51,50)  GENR(52,51)  GENR(53,52)  GENR(54,53)  GENR(55,54)  GENR(56,55)  GENR(57,56)  GENR(58,57)  GENR(59,58)  GENR(60,59)  GENR(61,60)  GENR(62,61)  GENR(63,62)  ;
+ 
+typedef void (*recfunc_t)(int);
+
+static recfunc_t recfuncs[] = {
+recfunc0, recfunc1, recfunc2, recfunc3, recfunc4, recfunc5, recfunc6, recfunc7, recfunc8, recfunc9, recfunc10, recfunc11, recfunc12, recfunc13, recfunc14, recfunc15, recfunc16, recfunc17, recfunc18, recfunc19, recfunc20, recfunc21, recfunc22, recfunc23, recfunc24, recfunc25, recfunc26, recfunc27, recfunc28, recfunc29, recfunc30, recfunc31, recfunc32, recfunc33, recfunc34, recfunc35, recfunc36, recfunc37, recfunc38, recfunc39, recfunc40, recfunc41, recfunc42, recfunc43, recfunc44, recfunc45, recfunc46, recfunc47, recfunc48, recfunc49, recfunc50, recfunc51, recfunc52, recfunc53, recfunc54, recfunc55, recfunc56, recfunc57, recfunc58, recfunc59, recfunc60, recfunc61, recfunc62, recfunc63
+};
+
+static void
+return_addr_stack(struct prog_arg *p,
+                  struct thread_data *a)
+{
+    int max_depth = 32;
+    int md, li, n = p->nloop;
+
+    time_init();
+
+    for (md=1; md<max_depth; md++) {
+        long long tb = get_cycle(), te;
+
+        for (li=0; li<n; li++) {
+            recfuncs[md](1);
+        }
+
+        te = get_cycle();
+
+        printf("depth %d: %f\n", md, (te-tb)/(double)(n*md));
+    }
+
+    time_end();
+}
+
 #ifdef __x86_64__
 #include "bench-x86_64.h"
 #endif
@@ -117,6 +279,11 @@ struct bench bench_list[] = {
     {0, "memcpy", memcpy_test, dump_2mem},
     {0, "memset", memset_test, dump_1mem},
 
+    {SINGLE_THREAD, "mem_reorder", mem_reorder, NULL},
+
+    {0, "vecadd", vecadd_test, dump_f32op1},
+    {SINGLE_THREAD, "return_addr_stack", return_addr_stack, NULL},
+
 #ifdef __x86_64__
     {0, "ntdqa", ntdqa_test, dump_1mem},
     {0, "sse_store", sse_store_test, dump_1mem},
@@ -128,6 +295,7 @@ struct bench bench_list[] = {
 
 #ifdef __arm__
     {0, "neon_store", neon_store_test, dump_1mem},
+    {0, "neon_load", neon_load_test, dump_1mem},
     {0, "neon_copy", neon_copy_test, dump_2mem},
     {SINGLE_THREAD, "a15-ipc3", a15_ipc3, NULL},
     {SINGLE_THREAD, "int_latency", int_latency, NULL},
@@ -135,6 +303,7 @@ struct bench bench_list[] = {
     {SINGLE_THREAD, "fmul_latency", fmul_latency, NULL},
     {SINGLE_THREAD, "fma_latency", fma_latency, NULL},
     {SINGLE_THREAD, "fma_throughput", fma_throughput, NULL},
+    {SINGLE_THREAD, "block_branch", block_branch, NULL}
 #endif
 
 };

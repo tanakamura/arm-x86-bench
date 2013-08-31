@@ -34,6 +34,37 @@ neon_store_test(struct prog_arg *pa, struct thread_data *ta)
 }
 
 static void
+neon_load_test(struct prog_arg *pa, struct thread_data *ta)
+{
+    int n = pa->nloop;
+    int i;
+
+    unsigned int bs = pa->block_size_op;
+
+    for (i=0; i<n; i++) {
+        int niter = bs / (16U * 4U);
+        int bi;
+        unsigned char *src = pa->mem1 + (ta->tid * pa->block_size);
+
+        bi = 0;
+        __asm__ __volatile__ ("1:\n\t"
+                              "adds %0, %0, #1\n\t"
+                              "cmp %0, %2\n\t"
+                              "vld1.8 {d0,d1}, [%1]!\n\t"
+                              "vld1.8 {d0,d1}, [%1]!\n\t"
+                              "vld1.8 {d0,d1}, [%1]!\n\t"
+                              "vld1.8 {d0,d1}, [%1]!\n\t"
+                              "bne 1b\n\t"
+                              :"+r"(bi),
+                               "+r"(src)
+                              :"r"(niter)
+                              :"q0", "memory");
+
+        __asm__ __volatile__ ("":::"memory");
+    }
+}
+
+static void
 neon_copy_test(struct prog_arg *pa, struct thread_data *ta)
 {
     int n = pa->nloop;
@@ -137,7 +168,7 @@ a15_ipc3(struct prog_arg *pa, struct thread_data *ta)
 
     time_end();
 
-    int inst_total = n * niter * (double)12;
+    double inst_total = n * niter * (double)12;
 
     printf("IPC=%f %lld\n", inst_total / (double)(te-tb), te-tb);
 }
@@ -178,7 +209,7 @@ int_latency(struct prog_arg *pa, struct thread_data *ta)
 
     time_end();
 
-    int inst_total = n * niter * (double)19;
+    double inst_total = n * niter * (double)19;
 
     printf("IPC=%f %lld\n", inst_total / (double)(te-tb), te-tb);
 }
@@ -220,7 +251,7 @@ fadd_latency(struct prog_arg *pa, struct thread_data *ta)
 
     time_end();
 
-    int inst_total = n * niter * (double)16;
+    double inst_total = n * niter * (double)16;
 
     printf("CPI=%f %lld\n", (double)(te-tb)/(double)inst_total, te-tb);
 }
@@ -261,7 +292,7 @@ fmul_latency(struct prog_arg *pa, struct thread_data *ta)
 
     time_end();
 
-    int inst_total = n * niter * (double)16;
+    double inst_total = n * niter * (double)16;
 
     printf("CPI=%f %lld\n", (double)(te-tb)/(double)inst_total, te-tb);
 }
@@ -304,7 +335,7 @@ fma_latency(struct prog_arg *pa, struct thread_data *ta)
 
     time_end();
 
-    int inst_total = n * niter * (double)16;
+    double inst_total = n * niter * (double)16;
 
     printf("CPI=%f %lld\n", (double)(te-tb)/(double)inst_total, te-tb);
 }
@@ -354,7 +385,56 @@ fma_throughput(struct prog_arg *pa, struct thread_data *ta)
 
     time_end();
 
-    int inst_total = n * niter * (double)32;
+    double inst_total = n * niter * (double)32;
+
+    printf("IPC=%f %lld\n", (double)inst_total/(double)(te-tb), te-tb);
+}
+
+
+static void
+block_branch(struct prog_arg *pa, struct thread_data *ta)
+{
+    int n = pa->nloop;
+    int i;
+    long long tb;
+    long long te;
+    int niter = 4096*128;
+    void *ptr = pa->mem1;
+
+    time_init();
+
+    tb = get_cycle();
+
+    for (i=0; i<n; i++) {
+        int bi = 0;
+
+        
+        __asm__ __volatile__ ("vsub.f32 q0, q0, q0\n\t"
+                              "mov r3, #0\n\t"
+                              ".align 4\n\t"
+                              "1:\n\t"
+
+                              ITER16("cmp r3, #1\n\t"
+                                     "beq.n 2f\n\t"
+                                     ".align 2\n\t"
+                                     "2:\n\t"
+                                    )
+
+                              "adds %0, %0, #1\n\t"
+                              "cmp %0, %1\n\t"
+                              "bne 1b"
+
+                              :"+r"(bi)
+                              :"r"(niter), "r"(ptr)
+                              :"memory", "r3", "r4", "r8", "q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8"
+                              );
+    }
+
+    te = get_cycle();
+
+    time_end();
+
+    double inst_total = n * niter * (double)35;
 
     printf("IPC=%f %lld\n", (double)inst_total/(double)(te-tb), te-tb);
 }

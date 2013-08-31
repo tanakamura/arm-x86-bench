@@ -13,6 +13,7 @@ double get_sec(void)
 
 
 #ifdef __arm__
+#include <unistd.h>
 #include <asm/unistd.h>
 #include <linux/perf_event.h>
 

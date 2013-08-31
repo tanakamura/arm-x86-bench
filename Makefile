@@ -1,13 +1,13 @@
 MACHINE=$(shell uname -m)
 all: bench-$(MACHINE)
 
-CFLAGS = -O2 -save-temps
+CFLAGS = -O2 -save-temps  -falign-loops=16
 
 LDLIBS = -lpthread -lrt 
 LDFLAGS = 
 
 ifeq "x86_64" "$(MACHINE)"
-CFLAGS += 
+CFLAGS +=
 else
 CFLAGS += -mcpu=cortex-a15 -mfloat-abi=softfp -mfpu=neon-vfpv4
 endif
